@@ -13,3 +13,5 @@ backend/Lib/
 backend/Scripts/
 backend/pyvenv.cfg
 .venv/
+
+.vercel/

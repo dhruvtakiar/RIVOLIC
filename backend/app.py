@@ -3,7 +3,7 @@ from functools import wraps
 from flask import Flask, jsonify, request, session
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
-from config import Config
+from config import Config, validate_production_config
 from database import get_db, close_db, init_db
 from services.consumption_engine import calculate
 from services.recommendation_engine import generate
@@ -12,7 +12,8 @@ from services.what_if_engine import simulate
 
 def create_app():
     app = Flask(__name__); app.config.from_object(Config)
-    CORS(app, supports_credentials=True, origins=['http://localhost:5173'])
+    validate_production_config(app)
+    CORS(app, supports_credentials=True, origins=app.config['FRONTEND_ORIGINS'])
     app.teardown_appcontext(close_db); init_db(app)
 
     @app.errorhandler(404)
@@ -51,12 +52,12 @@ def create_app():
         if not name or not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email) or len(password)<8: return jsonify(error='Enter a name, valid email, and password of at least 8 characters.'),400
         db=get_db()
         try:
-            cur=db.execute('INSERT INTO users(name,email,password_hash) VALUES(?,?,?)',(name,email,generate_password_hash(password)))
-            db.execute('INSERT INTO profiles(user_id) VALUES(?)',(cur.lastrowid,)); db.commit()
+            cur=db.execute('INSERT INTO users(name,email,password_hash) VALUES(?,?,?) RETURNING id',(name,email,generate_password_hash(password)))
+            user_id=cur.fetchone()['id']; db.execute('INSERT INTO profiles(user_id) VALUES(?)',(user_id,)); db.commit()
         except Exception:
             return jsonify(error='Unable to create an account with those details.'), 400
-        session.clear(); session['user_id']=cur.lastrowid
-        return jsonify(user=user_payload(cur.lastrowid), onboarding=True), 201
+        session.clear(); session['user_id']=user_id
+        return jsonify(user=user_payload(user_id), onboarding=True), 201
     @app.post('/api/auth/login')
     def login():
         d=request.get_json(silent=True) or {}; row=get_db().execute('SELECT id,password_hash FROM users WHERE email=?',(d.get('email','').strip().lower(),)).fetchone()
@@ -79,7 +80,7 @@ def create_app():
         name=d.get('name','').strip()
         if not name: return jsonify(error='Name is required.'),400
         get_db().execute('UPDATE users SET name=? WHERE id=?',(name,session['user_id']))
-        get_db().execute('UPDATE profiles SET household_size=?,location=?,units=?,reduced_motion=? WHERE user_id=?',(household,d.get('location','').strip(),d.get('units','litres'),int(bool(d.get('reduced_motion'))),session['user_id']));get_db().commit()
+        get_db().execute('UPDATE profiles SET household_size=?,location=?,units=?,reduced_motion=? WHERE user_id=?',(household,d.get('location','').strip(),d.get('units','litres'),bool(d.get('reduced_motion')),session['user_id']));get_db().commit()
         return jsonify(user=user_payload(session['user_id']))
     @app.post('/api/analysis')
     @protected
@@ -88,9 +89,9 @@ def create_app():
         except ValueError as e: return jsonify(error=str(e)),400
         result=calculate(d); conservation=score(d,result); recs=generate(d,result); potential=round(result['daily_total'] * sum({'HIGH':.15,'MEDIUM':.07,'LOW':.03}[r['priority']] for r in recs),1)
         largest=max(result['breakdown'],key=result['breakdown'].get); db=get_db()
-        cur=db.execute('INSERT INTO analyses(user_id,input_data,daily_total,monthly_total,breakdown,score,potential_reduction,largest_area) VALUES(?,?,?,?,?,?,?,?)',(session['user_id'],json.dumps(d),result['daily_total'],result['monthly_total'],json.dumps(result['breakdown']),conservation,potential,largest))
-        for r in recs: db.execute('INSERT INTO analysis_recommendations(analysis_id,title,reason,action,category,priority,impact) VALUES(?,?,?,?,?,?,?)',(cur.lastrowid,r['title'],r['reason'],r['action'],r['category'],r['priority'],r['impact']))
-        db.commit(); return analysis_detail(cur.lastrowid)
+        cur=db.execute('INSERT INTO analyses(user_id,input_data,daily_total,monthly_total,breakdown,score,potential_reduction,largest_area) VALUES(?,?,?,?,?,?,?,?) RETURNING id',(session['user_id'],json.dumps(d),result['daily_total'],result['monthly_total'],json.dumps(result['breakdown']),conservation,potential,largest)); analysis_id=cur.fetchone()['id']
+        for r in recs: db.execute('INSERT INTO analysis_recommendations(analysis_id,title,reason,action,category,priority,impact) VALUES(?,?,?,?,?,?,?)',(analysis_id,r['title'],r['reason'],r['action'],r['category'],r['priority'],r['impact']))
+        db.commit(); return analysis_detail(analysis_id)
     def analysis_detail(analysis_id):
         db=get_db(); a=db.execute('SELECT * FROM analyses WHERE id=? AND user_id=?',(analysis_id,session['user_id'])).fetchone()
         if not a: return jsonify(error='Analysis not found.'),404
