@@ -1,0 +1,15 @@
+.env
+__pycache__/
+*.py[cod]
+backend/database/rivolic.db
+frontend/node_modules/
+frontend/dist/
+
+# Local Python environments
+Lib/
+Scripts/
+pyvenv.cfg
+backend/Lib/
+backend/Scripts/
+backend/pyvenv.cfg
+.venv/

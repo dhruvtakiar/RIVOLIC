@@ -1,0 +1,41 @@
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  password_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS profiles (
+  user_id INTEGER PRIMARY KEY,
+  household_size INTEGER NOT NULL DEFAULT 1,
+  location TEXT,
+  units TEXT NOT NULL DEFAULT 'litres',
+  reduced_motion INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS analyses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  input_data TEXT NOT NULL,
+  daily_total REAL NOT NULL,
+  monthly_total REAL NOT NULL,
+  breakdown TEXT NOT NULL,
+  score INTEGER NOT NULL,
+  potential_reduction REAL NOT NULL,
+  largest_area TEXT NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS analysis_recommendations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  analysis_id INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  action TEXT NOT NULL,
+  category TEXT NOT NULL,
+  priority TEXT NOT NULL,
+  impact TEXT NOT NULL,
+  FOREIGN KEY (analysis_id) REFERENCES analyses(id) ON DELETE CASCADE
+);
